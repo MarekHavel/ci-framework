@@ -1,0 +1,75 @@
+---
+- hosts: controller, primary
+  name: Download neutron whitebox tempest plugin image and virt customize it
+  tasks:
+    - name: Install libguestfs package
+      become: true
+      ansible.builtin.package:
+        name:
+          - libguestfs
+          - libguestfs-tools
+          - libguestfs-tools-c
+          - python-psutil
+        state: present
+
+    - name: Create whitebox directory
+      become: true
+      ansible.builtin.file:
+        path: "{{ ansible_user_dir }}/tempest-image"
+        state: directory
+        recurse: yes
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: '0755'
+
+    - name: Download whitebox testing related image
+      ansible.builtin.get_url:
+        url: "https://dl.rockylinux.org/vault/rocky/9.3/images/x86_64/Rocky-9-GenericCloud.latest.x86_64.qcow2"
+        dest: "{{ ansible_user_dir }}/tempest-image/Rocky-9-GenericCloud.latest.x86_64.qcow2"
+      register: result
+      until: result is success
+      retries: 60
+      delay: 10
+
+    - name: Install packages and set root password on the downloaded image
+      ansible.builtin.command:
+        cmd: >-
+          virt-customize -a Rocky-9-GenericCloud.latest.x86_64.qcow2
+          --install nmap,keepalived,iperf3
+          --root-password password:12345678
+          --selinux-relabel
+        chdir: "{{ ansible_user_dir }}/tempest-image/"
+      environment:
+        LIBGUESTFS_BACKEND_SETTINGS: force_tcg
+        LIBGUESTFS_BACKEND: direct
+      changed_when: true
+
+    - name: Open port 8766 to serve repos
+      become: true
+      ansible.builtin.command: "{{ item }}"
+      with_items:
+        - "nft add table ip filter"
+        - "nft add chain ip filter INPUT { type filter hook input priority 0 \\; }"
+        - "nft insert rule ip filter INPUT tcp dport 8766 counter accept"
+      changed_when: true
+
+    - name: Serve gating repos
+      vars:
+        _log_dir: "{{ ansible_user_dir }}/ci-framework-data/logs"
+      ansible.builtin.shell:
+        cmd: >-
+          nohup python -m http.server 8766 1>{{ _log_dir }}/http_server.log 2>{{ _log_dir }}/http_server_error.log &
+      args:
+        chdir: "{{ ansible_user_dir }}/tempest-image/"
+      
+    - name: Var file to store image data
+      vars:
+        _host_ip: >-
+          {{ hostvars[groups.all[0]].ansible_host if hostvars[groups.all[0]].ansible_host
+          is match("[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")
+          else hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}
+      ansible.builtin.copy:
+        mode: "0644"
+        content: |
+          whitebox_image_url: "http://{{ _host_ip }}:8766/Rocky-9-GenericCloud.latest.x86_64.qcow2"
+        dest: "{{ ansible_user_dir }}/ci-framework-data/artifacts/whitebox_image.yml"
