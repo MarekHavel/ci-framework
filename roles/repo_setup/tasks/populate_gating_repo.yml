@@ -9,6 +9,7 @@
   when: _url_status.status == 200
   block:
     - name: Populate gating repo from content provider ip
+      become: "{{ not cifmw_repo_setup_output.startswith(ansible_user_dir) }}"
       ansible.builtin.copy:
         content: |
           [gating-repo]
@@ -19,12 +20,14 @@
         dest: "{{ cifmw_repo_setup_output }}/gating.repo"
 
     - name: Check for DLRN repo at the destination
+      become: "{{ not cifmw_repo_setup_output.startswith(ansible_user_dir) }}"
       ansible.builtin.stat:
         path: "{{ cifmw_repo_setup_output }}/delorean.repo"
       register: _dlrn_repo
 
     - name: Lower the priority of DLRN repos to allow installation from gating repo
       when: _dlrn_repo.stat.exists
+      become: "{{ not cifmw_repo_setup_output.startswith(ansible_user_dir) }}"
       ansible.builtin.replace:
         path: "{{ cifmw_repo_setup_output }}/delorean.repo"
         regexp: "priority=1"
