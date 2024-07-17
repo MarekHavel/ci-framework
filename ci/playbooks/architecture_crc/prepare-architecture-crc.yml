@@ -1,76 +1,9 @@
 ---
 - hosts: "{{ cifmw_target_host | default('localhost') }}"
   tasks:
-    - name: Load the networking-info file
-      register: _networking_info
-      ansible.builtin.slurp:
-        src: /etc/ci/env/networking-info.yml
-
-    - name: Set networks var
-      vars:
-        _read_networking_vars: >-
-          {{
-            _networking_info['content'] | b64decode | from_yaml
-          }}
-      ansible.builtin.set_fact:
-        crc_ci_bootstrap_networks_out: "{{ _read_networking_vars['crc_ci_bootstrap_networks_out'] }}"
-
-    - name: Construct network mapper patch dict for mtu values
-      vars:
-      ansible.builtin.set_fact:
-        mtus: >-
-          {{
-            mtus | default({}) |
-            combine({ item.key | regex_replace('default', 'ctlplane'): { "mtu": item.value.mtu} })
-          }}
-      loop: "{{ crc_ci_bootstrap_networks_out['compute-0'] | dict2items }}"
-
-    - name: Set mtu fact to patch networking definition
-      ansible.builtin.set_fact:
-        cifmw_networking_mapper_definition_patch_01:
-          networks: "{{ mtus }}"
-
-    - name: Construct interfaces dict
-      vars:
-        networks: >-
-          {{
-            item.value | dict2items | map(attribute='key')
-          }}
-        macs: >-
-          {{
-            item.value | dict2items | map(attribute='value.mac')
-          }}
-      ansible.builtin.set_fact:
-        interfaces: >-
-          {{
-            interfaces | default({}) | combine(
-            { item.key:
-              networks | zip(macs)
-            }
-            )
-          }}
-      loop: "{{ crc_ci_bootstrap_networks_out | dict2items }}"
-
-    - name: Generate interfaces-info dictionary
-      ansible.builtin.copy:
-        dest: "{{ cifmw_basedir }}/parameters/interfaces-info.yml"
-        content: |
-          {% for node, net_list in interfaces.items() %}
-          {{ node }}:
-          {% for interface in net_list %}
-            - network: {{ interface[0] }}
-              mac: "{{ interface[1] }}"
-          {% endfor%}
-          {% endfor%}
-
-    - name: Call networking_mapper
-      vars:
-        cifmw_networking_mapper_interfaces_info_translations:
-          default:
-            - ctlplane
-      ansible.builtin.import_role:
-        name: networking_mapper
-
+    - name: fail
+      ansible.builtin.fail:
+        msg: "Failing before touching nmcli"
     # jgilaber: we need to make sure nncp does not touch the vlans, otherwise
     # it'll create them with the same MAC address as the ospbr bridge and that
     # causes problems when trying to reach the dnsmasq service from the compute
@@ -80,17 +13,14 @@
       delegate_to: "crc"
       become: true
       ansible.builtin.shell: |
-        nmcli con down {{ item.old_conn }}
-        nmcli con modify {{ item.old_conn }} connection.interface-name {{ item.conn_name }}
-        nmcli con modify {{ item.old_conn }} connection.id {{ item.conn_name }}
-        nmcli con up {{ item.conn_name }}
+        nmcli con down ci-{{ item }}
+        nmcli con modify ci-{{ item }} connection.interface-name {{ item }}
+        nmcli con modify ci-{{ item }} connection.id {{ item }}
+        nmcli con up {{ item }}
       loop:
-        - old_conn: ci-private-network-20
-          conn_name: internalapi
-        - old_conn: ci-private-network-21
-          conn_name: storage
-        - old_conn: ci-private-network-22
-          conn_name: tenant
+        - internalapi
+        - storage
+        - tenant
 
 - hosts: computes
   tasks:

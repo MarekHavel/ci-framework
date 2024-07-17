@@ -144,6 +144,15 @@
 - name: Write mapping outputs to file
   become: true
   block:
+    # DNM jgilaber
+    - name: Show path where we are writing the net env def
+      ansible.builtin.debug:
+        msg: "{{ cifmw_networking_mapper_networking_env_def_path }}"
+
+    - name: Show net env def
+      ansible.builtin.debug:
+        msg: "{{ _networking_mapper_out.networking_env_definition | to_nice_yaml }}"
+
     - name: Write the Networking Environment Definition to file
       when: not _networking_mapper_out.failed
       ansible.builtin.copy:
